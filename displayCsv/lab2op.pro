@@ -17,7 +17,8 @@ SOURCES += \
     logic.cpp \
     main.cpp \
     mainwindow.cpp \
-    mystring.cpp
+    mystring.cpp \
+    sort.cpp
 
 HEADERS += \
     appcontext.h \
@@ -25,7 +26,6 @@ HEADERS += \
     arraylist.h \
     demographicData.h \
     entrypoint.h \
-    errorName.h \
     graphconsts.h \
     iterator.h \
     lineinfo.h \
@@ -35,6 +35,8 @@ HEADERS += \
     metrics.h \
     mystring.h \
     param.h \
+    programstatus.h \
+    sort.h \
     status.h
 
 FORMS += \

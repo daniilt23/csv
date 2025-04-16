@@ -34,7 +34,6 @@ private:
     Ui::MainWindow *ui;
     AppContext* context;
     AppParam* param;
-    LineInfo* fileinfo;
     GraphBounds* graphBounds;
     void updateColumnsComboBox();
     void updateRegionsComboBox();
@@ -47,23 +46,24 @@ private:
     void displayMetrics();
     void errorFileOpen();
     void errorNoData();
+    void populateRegionsComboBox();
     void errorLoadData();
     void drawGraph();
-    void extractGraphData(QVector<double>& years, QVector<double>& values);
-    double getValueForCurrentColumn(const DemographicData* data);
-    void calculateGraphBounds(const QVector<double>& years, const QVector<double>& values);
+    void extractGraphData(QVector<QPointF>& points);
+    void calculateGraphBounds(QVector<QPointF>& points);
     void setupGraphArea(QPainter& painter, const QSize& size);
-    QVector<QPointF> calculatePointPositions(const QVector<double>& years,
-        const QVector<double>& values, const QSize& pixmapSize);
-    void drawDataPoints(QPainter& painter, const QVector<QPointF>& points);
-    void drawDataLines(QPainter& painter, const QVector<QPointF>& points);
-    void markExtremesAndMedian(QPainter& painter, const QVector<QPointF>& points, const QVector<double>& values);
-    int findClosestValueIndex(const QVector<double>& values, double target);
+    QVector<QPointF> calculatePointPositions(const QVector<QPointF>& dataPoints, const QSize& pixmapSize);
+    void drawPoints(QPainter& painter, const QVector<QPointF>& points);
+    void drawLines(QPainter& painter, const QVector<QPointF>& points);
+    void markExtremesAndMedian(QPainter& painter, const QVector<QPointF>& pixelPoints, const QVector<QPointF>& dataPoints);
+    int findClosestValueIndex(const QVector<QPointF>& dataPoints, double target);
     void drawAxes(QPainter& painter, const QSize& size);
-    void addAxisLabels(QPainter& painter,const QVector<QPointF>& points,
-        const QVector<double>& years, const QVector<double>& values, const QSize& pixmapSize);
+    void addAxisLabels(QPainter& painter, const QVector<QPointF>& pixelPoints, const QVector<QPointF>& dataPoints, const QSize& pixmapSize);
     bool shouldDrawXLabel(const QVector<QPointF>& points, int index);
     void disposeGraph();
+    static bool compareYLess(const QPointF& a, const QPointF& b);
+    static bool compareYGreater(const QPointF& a, const QPointF& b);
+
 };
 
 #endif // MAINWINDOW_H

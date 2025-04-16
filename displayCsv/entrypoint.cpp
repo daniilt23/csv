@@ -13,5 +13,8 @@ void doOperation(Operation operation, AppContext* context, AppParam* param)
     case CALCULATE:
         calculateMetrics(context, param);
         break;
+    case INIT_CONTEXT:
+        initContext(context);
+        break;
     }
 }

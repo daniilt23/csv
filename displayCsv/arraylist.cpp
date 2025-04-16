@@ -30,6 +30,11 @@ void arrayListAdd(ArrayList* list, float value)
     list->data[list->size++] = value;
 }
 
+bool isEmpty(ArrayList* list)
+{
+    return list->size <= 0;
+}
+
 ArrayIterator arrayListBegin(ArrayList* list)
 {
     return arrayBegin(list->data);

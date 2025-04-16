@@ -1,6 +1,6 @@
 #ifndef APPCONTEXT_H
 #define APPCONTEXT_H
-#include "errorName.h"
+#include "programstatus.h"
 #include "linkedList.h"
 #include "lineinfo.h"
 #include "metrics.h"
@@ -11,21 +11,16 @@ enum
 {
     ONE = 1,
     TWO,
-    THREE,
-    FOUR,
-    FIVE,
-    SIX,
-    SEVEN,
 };
 
 struct AppContext
 {
     char region[SIZE];
-    LinkedList dataList;
-    LinkedList regionList;
-    LineInfo lineInfo;
-    Metrics metrics;
-    ErrorStatus error;
+    LinkedList* dataList;
+    LinkedList* regionList;
+    LineInfo* lineInfo;
+    Metrics* metrics;
+    ProgramStatus* error;
 };
 
 #endif // APPCONTEXT_H

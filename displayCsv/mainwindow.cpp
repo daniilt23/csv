@@ -5,7 +5,6 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow)
     , context(new AppContext{})
     , param(new AppParam)
-    , fileinfo(new LineInfo)
     , graphBounds(new GraphBounds)
 {
     ui->setupUi(this);
@@ -24,7 +23,6 @@ MainWindow::MainWindow(QWidget *parent)
 
     ui->regionComboBox->setStyleSheet(comboBoxStyle);
     ui->columnComboBox->setStyleSheet(comboBoxStyle);
-    initContext(context);
 
     connect(ui->pushButton, &QPushButton::clicked, this, &MainWindow::loadFileButton);
     connect(ui->loadDataButton, &QPushButton::clicked, this, &MainWindow::loadDataButton);
@@ -35,7 +33,6 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-    delete fileinfo;
     delete context;
     delete graphBounds;
     delete param;
@@ -47,15 +44,14 @@ void MainWindow::loadFileButton()
     QString fileName = QFileDialog::getOpenFileName(this, "Open CSV File", "C://csv", "CSV Files (*.csv)");
     if (!fileName.isEmpty())
     {
-        clearContext(context);
-        initContext(context);
+        doOperation(INIT_CONTEXT, context, param);
         param->fileName = strdup(fileName.toUtf8().constData());
         doOperation(READ_CSV_FILE, context, param);
         ui->fileNameLabel->setText(param->fileName);
         displaySummary();
-        if (context->lineInfo.errorLines > ONE)
+        if (context->lineInfo->errorLines > ONE)
             displayTable(ALL_REGIONS);
-        else if (context->lineInfo.errorLines == ONE)
+        else if (context->lineInfo->errorLines == ONE)
             errorFileOpen();
     }
 }
@@ -63,7 +59,7 @@ void MainWindow::loadFileButton()
 void MainWindow::loadDataButton()
 {
     QString region = ui->regionComboBox->currentText();
-    if (context->lineInfo.errorLines)
+    if (context->lineInfo->errorLines)
     {
         if (region == "All regions")
             displayTable(ALL_REGIONS);
@@ -81,15 +77,9 @@ void MainWindow::loadDataButton()
 
 void MainWindow::calculateButton()
 {
-    QString selectedColumn = ui->columnComboBox->currentText();
+    param->column = ui->columnComboBox->currentData().toInt();
 
-    if (selectedColumn == "NPG") param->column = TWO;
-    else if (selectedColumn == "Birth Rate") param->column = THREE;
-    else if (selectedColumn == "Death Rate") param->column = FOUR;
-    else if (selectedColumn == "GDW") param->column = FIVE;
-    else if (selectedColumn == "Urbanization") param->column = SIX;
-
-    if (context->regionList.size > 0)
+    if (context->regionList->size > 0)
     {
         doOperation(CALCULATE, context, param);
         displayMetrics();
@@ -101,20 +91,19 @@ void MainWindow::calculateButton()
 
 void MainWindow::displayMetrics()
 {
-    ui->maxLine->setText(QString::number(context->metrics.max));
-    ui->minLine->setText(QString::number(context->metrics.min));
-    ui->medLine->setText(QString::number(context->metrics.med));
+    ui->maxLine->setText(QString::number(context->metrics->max));
+    ui->minLine->setText(QString::number(context->metrics->min));
+    ui->medLine->setText(QString::number(context->metrics->med));
 }
 
 void MainWindow::displayTable(Status status)
 {
     ui->tableWidget->clear();
     ui->tableWidget->setColumnCount(MAX_FIELD_COUNT);
-    QStringList headers;
-    headers << "Year" << "Region" << "NPG" << "Birth Rate" << "Death Rate" << "GDW" << "Urbanization";
+    QStringList headers(QStringList() << "Year" << "Region" << "NPG" << "Birth Rate" << "Death Rate" << "GDW" << "Urbanization");
     ui->tableWidget->setHorizontalHeaderLabels(headers);
-    LinkedList* list = status ? &context->regionList : &context->dataList;
-    int rowCount = status ? context->regionList.size : context->dataList.size - context->lineInfo.errorLines;
+    LinkedList* list = status ? context->regionList : context->dataList;
+    int rowCount = list->size;
     ui->tableWidget->setRowCount(rowCount);
     if (list && rowCount > 0)
     {
@@ -130,22 +119,22 @@ void MainWindow::displayTable(Status status)
 
 void MainWindow::updateTableRow(int row, const DemographicData* data)
 {
-    ui->tableWidget->setItem(row, 0, new QTableWidgetItem(QString::number(data->year)));
-    ui->tableWidget->setItem(row, ONE, new QTableWidgetItem(data->region));
-    ui->tableWidget->setItem(row, TWO, new QTableWidgetItem(QString::number(data->npg)));
-    ui->tableWidget->setItem(row, THREE, new QTableWidgetItem(QString::number(data->birthRate)));
-    ui->tableWidget->setItem(row, FOUR, new QTableWidgetItem(QString::number(data->deathRate)));
-    ui->tableWidget->setItem(row, FIVE, new QTableWidgetItem(QString::number(data->gdw)));
-    ui->tableWidget->setItem(row, SIX, new QTableWidgetItem(QString::number(data->urbanization)));
+    ui->tableWidget->setItem(row, YEAR, new QTableWidgetItem(QString::number(data->year)));
+    ui->tableWidget->setItem(row, REGION, new QTableWidgetItem(data->region));
+    ui->tableWidget->setItem(row, NPG, new QTableWidgetItem(QString::number(data->npg)));
+    ui->tableWidget->setItem(row, BIRTH_RATE, new QTableWidgetItem(QString::number(data->birthRate)));
+    ui->tableWidget->setItem(row, DEATH_RATE, new QTableWidgetItem(QString::number(data->deathRate)));
+    ui->tableWidget->setItem(row, GDW, new QTableWidgetItem(QString::number(data->gdw)));
+    ui->tableWidget->setItem(row, URBANIZATION, new QTableWidgetItem(QString::number(data->urbanization)));
 }
 
 void MainWindow::displaySummary()
 {
     QMessageBox::information(this, "File Summary",
         QString("Total Lines: %1\nValid Lines: %2\nError Lines: %3")
-          .arg(context->dataList.size)
-          .arg(context->dataList.size - context->lineInfo.errorLines)
-          .arg(context->lineInfo.errorLines));
+          .arg(context->dataList->size + context->lineInfo->errorLines)
+          .arg(context->dataList->size)
+          .arg(context->lineInfo->errorLines));
 }
 
 void MainWindow::updateRegionsComboBox()
@@ -153,7 +142,7 @@ void MainWindow::updateRegionsComboBox()
     ui->regionComboBox->clear();
     QSet<QString> regions;
 
-    Iterator it = begin(&context->dataList);
+    Iterator it = begin(context->dataList);
     while (it.current != nullptr)
     {
         DemographicData* data = (DemographicData*)get(&it);
@@ -170,11 +159,11 @@ void MainWindow::updateRegionsComboBox()
 void MainWindow::updateColumnsComboBox()
 {
     ui->columnComboBox->clear();
-    ui->columnComboBox->addItem("NPG");
-    ui->columnComboBox->addItem("Birth Rate");
-    ui->columnComboBox->addItem("Death Rate");
-    ui->columnComboBox->addItem("GDW");
-    ui->columnComboBox->addItem("Urbanization");
+    ui->columnComboBox->addItem("NPG", NPG);
+    ui->columnComboBox->addItem("Birth Rate", BIRTH_RATE);
+    ui->columnComboBox->addItem("Death Rate", DEATH_RATE);
+    ui->columnComboBox->addItem("GDW", GDW);
+    ui->columnComboBox->addItem("Urbanization", URBANIZATION);
 }
 
 void MainWindow::errorFileOpen()
@@ -200,83 +189,56 @@ void MainWindow::disposeGraph()
 void MainWindow::drawGraph()
 {
     QPixmap pixmap(ui->graphLabel->size());
-    QVector<double> years, values;
-    extractGraphData(years, values);
+    QVector<QPointF> dataPoints;
+    extractGraphData(dataPoints);
 
     pixmap.fill(Qt::white);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    calculateGraphBounds(years, values);
+    calculateGraphBounds(dataPoints);
     setupGraphArea(painter, pixmap.size());
-
     drawAxes(painter, pixmap.size());
 
-    QVector<QPointF> points = calculatePointPositions(years, values, pixmap.size());
-    drawDataPoints(painter, points);
-    drawDataLines(painter, points);
+    QVector<QPointF> pixelPoints = calculatePointPositions(dataPoints, pixmap.size());
+    drawPoints(painter, pixelPoints);
+    drawLines(painter, pixelPoints);
 
-    markExtremesAndMedian(painter, points, values);
-
-    addAxisLabels(painter, points, years, values, pixmap.size());
+    markExtremesAndMedian(painter, pixelPoints, dataPoints);
+    addAxisLabels(painter, pixelPoints, dataPoints, pixmap.size());
 
     ui->graphLabel->setPixmap(pixmap);
 }
 
-void MainWindow::extractGraphData(QVector<double>& years, QVector<double>& values)
+void MainWindow::extractGraphData(QVector<QPointF>& points)
 {
-    Iterator it = begin(&context->regionList);
-    while (it.current != 0)
+    Iterator it = begin(context->regionList);
+    while (hasNext(&it))
     {
         DemographicData* data = (DemographicData*)get(&it);
-        years.append(data->year);
-        values.append(getValueForCurrentColumn(data));
+        points.append(QPointF(data->year, getColumnValue(data, param->column)));
         next(&it);
     }
 }
 
-double MainWindow::getValueForCurrentColumn(const DemographicData* data)
+void MainWindow::calculateGraphBounds(QVector<QPointF>& points)
 {
-    double value = NAN;
-    switch (param->column)
+    graphBounds->x.min = graphBounds->x.max = points[0].x();
+    graphBounds->y.min = graphBounds->y.max = points[0].y();
+
+    for (const QPointF& p : points)
     {
-    case YEAR:
-        value = (float)data->year;
-        break;
-    case NPG:
-        value = data->npg;
-        break;
-    case BIRTH_RATE:
-        value = data->birthRate;
-        break;
-    case DEATH_RATE:
-        value = data->deathRate;
-        break;
-    case GDW:
-        value = data->gdw;
-        break;
-    case URBANIZATION:
-        value = data->urbanization;
-        break;
+        graphBounds->x.min = qMin(graphBounds->x.min, p.x());
+        graphBounds->x.max = qMax(graphBounds->x.max, p.x());
+        graphBounds->y.min = qMin(graphBounds->y.min, p.y());
+        graphBounds->y.max = qMax(graphBounds->y.max, p.y());
     }
-
-    return value;
-}
-
-void MainWindow::calculateGraphBounds(const QVector<double>& years, const QVector<double>& values)
-{
-    graphBounds->minX = *std::min_element(years.begin(), years.end());
-    graphBounds->maxX = *std::max_element(years.begin(), years.end());
-    graphBounds->minY = *std::min_element(values.begin(), values.end());
-    graphBounds->maxY = *std::max_element(values.begin(), values.end());
-
-    graphBounds->paddingX = (graphBounds->maxX - graphBounds->minX) * PADDING_COEFF;
-    graphBounds->paddingY = (graphBounds->maxY - graphBounds->minY) * PADDING_COEFF;
-
-    graphBounds->minX -= graphBounds->paddingX;
-    graphBounds->maxX += graphBounds->paddingX;
-    graphBounds->minY -= graphBounds->paddingY;
-    graphBounds->maxY += graphBounds->paddingY;
+    graphBounds->paddingX = (graphBounds->x.max - graphBounds->x.min) * PADDING_COEFF;
+    graphBounds->paddingY = (graphBounds->y.max - graphBounds->y.min) * PADDING_COEFF;
+    graphBounds->x.min -= graphBounds->paddingX;
+    graphBounds->x.max += graphBounds->paddingX;
+    graphBounds->y.min -= graphBounds->paddingY;
+    graphBounds->y.max += graphBounds->paddingY;
 }
 
 void MainWindow::setupGraphArea(QPainter& painter, const QSize& size)
@@ -288,78 +250,43 @@ void MainWindow::setupGraphArea(QPainter& painter, const QSize& size)
     painter.drawRect(MARGIN, MARGIN, width, height);
 }
 
-QVector<QPointF> MainWindow::calculatePointPositions(const QVector<double>& years, const QVector<double>& values,
-                                                     const QSize& pixmapSize)
+QVector<QPointF> MainWindow::calculatePointPositions(const QVector<QPointF>& dataPoints, const QSize& pixmapSize)
 {
-    QVector<QPointF> points;
-
-    for (int i = 0; i < years.size(); ++i)
+    QVector<QPointF> pixelPoints;
+    for (const QPointF& p : dataPoints)
     {
-        double x = MARGIN + (years[i] - graphBounds->minX) / (graphBounds->maxX - graphBounds->minX) * (pixmapSize.width() - TWO * MARGIN);
-        double y = MARGIN + (ONE - (values[i] - graphBounds->minY) / (graphBounds->maxY - graphBounds->minY)) * (pixmapSize.height() - TWO * MARGIN);
-        points.append(QPointF(x, y));
+        double x = MARGIN + (p.x() - graphBounds->x.min) / (graphBounds->x.max - graphBounds->x.min) * (pixmapSize.width() - TWO * MARGIN);
+        double y = MARGIN + (ONE - (p.y() - graphBounds->y.min) / (graphBounds->y.max - graphBounds->y.min)) * (pixmapSize.height() - TWO * MARGIN);
+        pixelPoints.append(QPointF(x, y));
     }
 
-    return points;
+    return pixelPoints;
 }
 
-void MainWindow::drawDataPoints(QPainter& painter, const QVector<QPointF>& points)
+void MainWindow::drawPoints(QPainter& painter, const QVector<QPointF>& points)
 {
     painter.setPen(Qt::black);
     for (const QPointF& point : points)
         painter.drawEllipse(point, TWO, TWO);
 }
 
-void MainWindow::drawDataLines(QPainter& painter, const QVector<QPointF>& points)
+void MainWindow::drawLines(QPainter& painter, const QVector<QPointF>& points)
 {
     painter.setPen(QPen(Qt::black, TWO));
     for (int i = 0; i < points.size() - ONE; ++i)
         painter.drawLine(points[i], points[i + ONE]);
 }
 
-void MainWindow::markExtremesAndMedian(QPainter& painter, const QVector<QPointF>& points, const QVector<double>& values)
-{
-    auto maxIt = std::max_element(values.begin(), values.end());
-    int maxIndex = std::distance(values.begin(), maxIt);
-
-
-    auto minIt = std::min_element(values.begin(), values.end());
-    int minIndex = std::distance(values.begin(), minIt);
-
-    double medianValue = context->metrics.med;
-    int medianIndex = findClosestValueIndex(values, medianValue);
-
-    painter.setPen(QPen(Qt::blue, TWO));
-
-    painter.drawEllipse(points[maxIndex], THREE, THREE);
-    painter.drawText(points[maxIndex] + QPointF(FIVE, NEG_TEN), "Max");
-
-    painter.drawEllipse(points[minIndex], THREE, THREE);
-    painter.drawText(points[minIndex] + QPointF(FIVE, NEG_TEN), "Min");
-
-    if (medianIndex != -1)
-    {
-        if (medianIndex == minIndex || medianIndex == minIndex) {
-            painter.drawText(points[medianIndex] + QPointF(FIVE, NEG_TWENTY), "Median");
-        }
-        else
-        {
-            painter.drawEllipse(points[medianIndex], THREE, THREE);
-            painter.drawText(points[medianIndex] + QPointF(FIVE, NEG_TEN), "Median");
-        }
-    }
-}
-
-int MainWindow::findClosestValueIndex(const QVector<double>& values, double target)
+int MainWindow::findClosestValueIndex(const QVector<QPointF>& dataPoints, double target)
 {
     int closestIndex = -1;
-    double closestDifference = std::numeric_limits<double>::max();
-    for (int i = 0; i < values.size(); ++i)
+    double closestDiff = INT_MAX;
+    for (int i = 0; i < dataPoints.size(); ++i)
     {
-        double currentDifference = std::abs(values[i] - target);
-        if (currentDifference < closestDifference)
+        double diff = std::abs(dataPoints[i].y() - target);
+        if (diff < closestDiff)
         {
-            closestDifference = currentDifference;
+            closestDiff = diff;
             closestIndex = i;
         }
     }
@@ -375,53 +302,87 @@ void MainWindow::drawAxes(QPainter& painter, const QSize& size)
 
 bool MainWindow::shouldDrawXLabel(const QVector<QPointF>& points, int index)
 {
-    return index > 0 && index < points.size() - ONE &&
+    return index > 0 && index < points.size() - 1 &&
            points[0].x() != points[index].x() &&
            points.last().x() != points[index].x();
 }
 
-void MainWindow::addAxisLabels(QPainter& painter, const QVector<QPointF>& points,
-    const QVector<double>& years, const QVector<double>& values,
-    const QSize& pixmapSize)
-{
+void MainWindow::addAxisLabels(QPainter& painter, const QVector<QPointF>& pixelPoints, const QVector<QPointF>& dataPoints, const QSize& pixmapSize) {
     QFont font = painter.font();
     font.setPointSize(TEN);
     painter.setFont(font);
-
-    painter.drawText(points[0].x(), pixmapSize.height() - MARGIN / TWO, QString::number(years[0]));
-    painter.drawText(points.last().x(), pixmapSize.height() - MARGIN / TWO, QString::number(years.last()));
-
-    auto maxIt = std::max_element(values.begin(), values.end());
-    int maxIndex = std::distance(values.begin(), maxIt);
-    auto minIt = std::min_element(values.begin(), values.end());
-    int minIndex = std::distance(values.begin(), minIt);
-    double medianValue = context->metrics.med;
-    int medianIndex = findClosestValueIndex(values, medianValue);
-
-    if (shouldDrawXLabel(points, maxIndex))
+    painter.drawText(pixelPoints.first().x(), pixmapSize.height() - MARGIN / TWO, QString::number(dataPoints.first().x()));
+    painter.drawText(pixelPoints.last().x(), pixmapSize.height() - MARGIN / TWO, QString::number(dataPoints.last().x()));
+    auto maxIt = std::max_element(dataPoints.begin(), dataPoints.end(), [](const QPointF& a, const QPointF& b) { return a.y() < b.y(); });
+    int maxIndex = std::distance(dataPoints.begin(), maxIt);
+    double maxValue = dataPoints[maxIndex].y();
+    auto minIt = std::min_element(dataPoints.begin(), dataPoints.end(), [](const QPointF& a, const QPointF& b) { return a.y() < b.y(); });
+    int minIndex = std::distance(dataPoints.begin(), minIt);
+    double minValue = dataPoints[minIndex].y();
+    double medianValue = context->metrics->med;
+    int medianIndex = findClosestValueIndex(dataPoints, medianValue);
+    if (shouldDrawXLabel(dataPoints, maxIndex))
     {
-        painter.drawText(QPointF(points[maxIndex].x(), pixmapSize.height() - MARGIN / TWO),
-                         QString::number(years[maxIndex]));
+        painter.drawText(QPointF(pixelPoints[maxIndex].x(), pixmapSize.height() - MARGIN / TWO),
+                         QString::number(dataPoints[maxIndex].x()));
     }
-    if (shouldDrawXLabel(points, minIndex))
-    {
-        painter.drawText(QPointF(points[minIndex].x(), pixmapSize.height() - MARGIN / TWO),
-                         QString::number(years[minIndex]));
+    if (shouldDrawXLabel(dataPoints, minIndex)) {
+        painter.drawText(QPointF(pixelPoints[minIndex].x(), pixmapSize.height() - MARGIN / TWO),
+                         QString::number(dataPoints[minIndex].x()));
     }
-    if (medianIndex != -1 && shouldDrawXLabel(points, medianIndex))
+    if (medianIndex != -1 && shouldDrawXLabel(dataPoints, medianIndex))
     {
-        painter.drawText(QPointF(points[medianIndex].x(), pixmapSize.height() - MARGIN / TWO),
-                         QString::number(years[medianIndex]));
+        painter.drawText(QPointF(pixelPoints[medianIndex].x(), pixmapSize.height() - MARGIN / TWO),
+                         QString::number(dataPoints[medianIndex].x()));
     }
 
-    painter.drawText(QPointF(MARGIN - FOURTY, points[maxIndex].y()), QString::number(*maxIt));
-    painter.drawText(QPointF(MARGIN - FOURTY, points[minIndex].y()), QString::number(*minIt));
-    if (medianIndex != -1 && minIndex != medianIndex && maxIndex != medianIndex)
+    painter.drawText(QPointF(MARGIN - FOURTY, pixelPoints[maxIndex].y()), QString::number(maxValue));
+    painter.drawText(QPointF(MARGIN - FOURTY, pixelPoints[minIndex].y()), QString::number(minValue));
+    if (medianIndex != -1 && medianIndex != minIndex && medianIndex != maxIndex)
     {
-        painter.drawText(QPointF(MARGIN - FOURTY, points[medianIndex].y()),
+        painter.drawText(QPointF(MARGIN - FOURTY, pixelPoints[medianIndex].y()),
                          QString::number(medianValue));
     }
 }
 
+bool MainWindow::compareYLess(const QPointF& a, const QPointF& b)
+{
+    return a.y() < b.y();
+}
 
+bool MainWindow::compareYGreater(const QPointF& a, const QPointF& b)
+{
+    return a.y() > b.y();
+}
+
+void MainWindow::markExtremesAndMedian(QPainter& painter, const QVector<QPointF>& pixelPoints, const QVector<QPointF>& dataPoints)
+{
+    QVector<QPointF>::const_iterator maxIt = std::max_element(dataPoints.begin(), dataPoints.end(), MainWindow::compareYLess);
+    int maxIndex = std::distance(dataPoints.begin(), maxIt);
+
+    auto minIt = std::min_element(dataPoints.begin(), dataPoints.end(), [](const QPointF& a, const QPointF& b) { return a.y() < b.y(); });
+    int minIndex = std::distance(dataPoints.begin(), minIt);
+
+    double medianValue = context->metrics->med;
+    int medianIndex = findClosestValueIndex(dataPoints, medianValue);
+
+    painter.setPen(QPen(Qt::blue, TWO));
+    painter.drawEllipse(pixelPoints[maxIndex], THREE, THREE);
+    painter.drawText(pixelPoints[maxIndex] + QPointF(FIVE, NEG_TEN), "Max");
+
+    painter.drawEllipse(pixelPoints[minIndex], THREE, THREE);
+    painter.drawText(pixelPoints[minIndex] + QPointF(FIVE, NEG_TEN), "Min");
+
+    if (medianIndex != -1)
+    {
+        if (medianIndex == minIndex || medianIndex == maxIndex)
+            painter.drawText(pixelPoints[medianIndex] + QPointF(FIVE, NEG_TWENTY), "Median");
+
+        else
+        {
+            painter.drawEllipse(pixelPoints[medianIndex], THREE, THREE);
+            painter.drawText(pixelPoints[medianIndex] + QPointF(FIVE, NEG_TEN), "Median");
+        }
+    }
+}
 

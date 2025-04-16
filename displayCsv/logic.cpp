@@ -2,136 +2,75 @@
 
 void initContext(AppContext* context)
 {
-    initLinkedList(&context->dataList, sizeof(DemographicData));
-    initLinkedList(&context->regionList, sizeof(DemographicData));
-    context->lineInfo.errorLines = 0;
-    context->metrics.min = 0;
-    context->metrics.max = 0;
-    context->metrics.med = 0;
+    context->lineInfo = (LineInfo*)malloc(sizeof(LineInfo));
+    context->dataList = (LinkedList*)malloc(sizeof(LinkedList));
+    initLinkedList(context->dataList, sizeof(DemographicData));
+    context->regionList = (LinkedList*)malloc(sizeof(LinkedList));
+    initLinkedList(context->regionList, sizeof(DemographicData));
+    context->metrics = (Metrics*)malloc(sizeof(Metrics));
+    context->error = (ProgramStatus*)malloc(sizeof(ProgramStatus));
+    *context->error = OK;
+    initLineInfo(context);
+    initMetrics(context);
 }
 
-void clearContext(AppContext* context)
+void initLineInfo(AppContext* context)
 {
-    disposeLinkedList(&context->dataList);
-    disposeLinkedList(&context->regionList);
+    context->lineInfo->errorLines = 0;
 }
 
-static bool parseCSVLine(const char* line, DemographicData* data)
+void initMetrics(AppContext* context)
 {
-    if (!line || !data)
-        return false;
-
-    char* copy = strdup(line);
-    if (!copy)
-        return false;
-
-    char** tokens = 0;
-    int tokenCount = parseWords(&tokens, copy, ",");
-    bool success = (tokenCount == SEVEN);
-    if (tokenCount < SEVEN)
-    {
-        if (tokens)
-        {
-            for (int i = 0; i < tokenCount; i++)
-                if (tokens[i])
-                    free(tokens[i]);
-            free(tokens);
-        }
-        free(copy);
-    }
-    else
-    {
-        data->year = atoi(tokens[0]);
-        strncpy(data->region, tokens[ONE], SIZE - ONE);
-        data->region[SIZE - TWO] = '\0';
-        data->npg = atof(tokens[TWO]);
-        data->birthRate = atof(tokens[THREE]);
-        data->deathRate = atof(tokens[FOUR]);
-        data->gdw = atof(tokens[FIVE]);
-        data->urbanization = atof(tokens[SIX]);
-    }
-
-    for (int i = 0; i < tokenCount; i++)
-        free(tokens[i]);
-    free(tokens);
-    free(copy);
-
-    return success;
+    context->metrics->min = 0;
+    context->metrics->max = 0;
+    context->metrics->med = 0;
 }
 
-bool checkLine(const char* line)
+void parseSpecificLine(DemographicData* data, char** tokens)
 {
-    char* copy = strdup(line);
-    char* token = strtok(copy, ",");
-    int count = 0;
-
-    while (token && count < MAX_FIELD_COUNT)
-    {
-        count++;
-        token = strtok(0, ",");
-    }
-
-    free(copy);
-
-    return count == MAX_FIELD_COUNT;
-}
-
-ErrorStatus initCSVReading(AppContext* context, FILE* file)
-{
-    ErrorStatus temp = OK;
-    if (!file)
-        temp = CANNOT_OPEN_FILE;
-    char line_buf[SIZE];
-    if (!fgets(line_buf, SIZE, file))
-    {
-        fclose(file);
-        temp = ERROR;
-    }
-    context->lineInfo.errorLines = 0;
-
-    return temp;
+    data->year = atoi(tokens[0]);
+    strncpy(data->region, tokens[REGION], SIZE - ONE);
+    data->npg = atof(tokens[NPG]);
+    data->birthRate = atof(tokens[BIRTH_RATE]);
+    data->deathRate = atof(tokens[DEATH_RATE]);
+    data->gdw = atof(tokens[GDW]);
+    data->urbanization = atof(tokens[URBANIZATION]);
 }
 
 void processCSVData(AppContext* context, FILE* file)
 {
     char line_buf[SIZE];
+    fgets(line_buf, SIZE, file);
     while (fgets(line_buf, SIZE, file))
     {
-        char* line = strdup(line_buf);
-        if (!line)
-            continue;
         char** words = nullptr;
-        int temp = parseWords(&words, line, ",");
-        if (temp == MAX_FIELD_COUNT)
+        int tokenCount = parseWords(&words, line_buf, ",");
+        if (tokenCount == MAX_FIELD_COUNT)
         {
             DemographicData data;
-            if (parseCSVLine(line_buf, &data))
-                pushBack(&context->dataList, &data);
-            else
-                context->lineInfo.errorLines++;
+            parseSpecificLine(&data, words);
+            pushBack(context->dataList, &data);
         }
         else
-        {
-            context->lineInfo.errorLines++;
-            context->dataList.size++;
-        }
-        free(line);
+            context->lineInfo->errorLines++;
+        for (int i = 0; i < tokenCount; i++)
+            free(words[i]);
+        free(words);
     }
-    fclose(file);
 }
 
 void readCSVRows(AppContext* context, AppParam* param)
 {
     FILE* file = fopen(param->fileName, "r");
-    context->error = initCSVReading(context, file);
-    if (context->error == OK)
+    if (file)
         processCSVData(context, file);
+    fclose(file);
 }
 
 void regionCheck(AppContext* context)
 {
     bool regionExists = false;
-    Iterator it = begin(&context->dataList);
+    Iterator it = begin(context->dataList);
 
     while (it.current != 0)
     {
@@ -144,20 +83,20 @@ void regionCheck(AppContext* context)
         next(&it);
     }
 
-    context->error = regionExists ? OK : INCORRECT_REGION;
+    *context->error = regionExists ? OK : INCORRECT_REGION;
 }
 
 void readDataForRegion(AppContext* context)
 {
-    disposeLinkedList(&context->regionList);
-    initLinkedList(&context->regionList, sizeof(DemographicData));
+    disposeLinkedList(context->regionList);
+    initLinkedList(context->regionList, sizeof(DemographicData));
 
-    Iterator it = begin(&context->dataList);
+    Iterator it = begin(context->dataList);
     while (hasNext(&it))
     {
         DemographicData* data = (DemographicData*)get(&it);
         if (strcmp(data->region, context->region) == 0)
-            pushBack(&context->regionList, data);
+            pushBack(context->regionList, data);
         next(&it);
     }
 }
@@ -194,93 +133,71 @@ float getColumnValue(void* data, int column)
 void calculateMetrics(AppContext* context, AppParam* param) {
     ArrayList values;
     arrayListInit(&values);
-    Iterator it = begin(&context->regionList);
+    Iterator it = begin(context->regionList);
     while (it.current != 0)
     {
         arrayListAdd(&values, getColumnValue(get(&it), param->column));
         next(&it);
     }
+    doCalculateMetrics(context, values);
+    arrayListDispose(&values);
+}
+
+void doCalculateMetrics(AppContext* context, ArrayList& values)
+{
     ArrayIterator begin = arrayListBegin(&values);
     ArrayIterator end = arrayListEnd(&values);
-    if (arrayListSize(&values) > 0)
+    if (!isEmpty(&values))
     {
         arrayPrev(&end);
         arrayQuickSort(begin, end);
-    }
-    if (arrayListSize(&values) > 0)
-    {
-        context->metrics.min = arrayGet(&begin);
+        context->metrics->min = arrayGet(&begin);
         ArrayIterator last = begin;
         for (size_t i = ONE; i < arrayListSize(&values); i++)
             arrayNext(&last);
-        context->metrics.max = arrayGet(&last);
+        context->metrics->max = arrayGet(&last);
         if (arrayListSize(&values) % TWO == 0)
         {
             ArrayIterator it1 = begin, it2 = begin;
             for (size_t i = 0; i < arrayListSize(&values) / TWO - ONE; i++) arrayNext(&it1);
             it2 = it1;
             arrayNext(&it2);
-            context->metrics.med = (arrayGet(&it1) + arrayGet(&it2)) * 0.5;
+            context->metrics->med = (arrayGet(&it1) + arrayGet(&it2)) * 0.5;
         }
         else
         {
             ArrayIterator it = begin;
             for (size_t i = 0; i < arrayListSize(&values) / TWO; i++) arrayNext(&it);
-            context->metrics.med = arrayGet(&it);
+            context->metrics->med = arrayGet(&it);
         }
     }
-
-    arrayListDispose(&values);
 }
 
-void arraySwap(ArrayIterator* a, ArrayIterator* b)
+double getValueForCurrentColumn(AppParam* param, const DemographicData* data)
 {
-    float tmp = arrayGet(a);
-    *(a->current) = arrayGet(b);
-    *(b->current) = tmp;
-}
-
-ArrayIterator arrayPartition(ArrayIterator low, ArrayIterator high)
-{
-    ArrayIterator pivot = high;
-    ArrayIterator i = low;
-
-    for (ArrayIterator j = low; !arrayItEquals(&j, &high); arrayNext(&j))
+    double value = NAN;
+    switch (param->column)
     {
-        if (arrayGet(&j) <= arrayGet(&pivot))
-        {
-            arraySwap(&i, &j);
-            arrayNext(&i);
-        }
+    case YEAR:
+        value = (float)data->year;
+        break;
+    case NPG:
+        value = data->npg;
+        break;
+    case BIRTH_RATE:
+        value = data->birthRate;
+        break;
+    case DEATH_RATE:
+        value = data->deathRate;
+        break;
+    case GDW:
+        value = data->gdw;
+        break;
+    case URBANIZATION:
+        value = data->urbanization;
+        break;
     }
-    arraySwap(&i, &high);
 
-    return i;
+    return value;
 }
 
-void arrayQuickSort(ArrayIterator low, ArrayIterator high)
-{
-    if (arrayItEquals(&low, &high))
-        return;
-    if (low.current >= high.current)
-        return;
-
-    ArrayIterator pi = arrayPartition(low, high);
-
-    ArrayIterator piPrev = pi;
-    arrayPrev(&piPrev);
-    arrayQuickSort(low, piPrev);
-
-    ArrayIterator piNext = pi;
-    arrayNext(&piNext);
-    arrayQuickSort(piNext, high);
-}
-
-void sortArrayWithIterators(float* array, size_t size)
-{
-    ArrayIterator begin = arrayBegin(array);
-    ArrayIterator end = arrayEnd(array, size);
-    arrayPrev(&end);
-
-    arrayQuickSort(begin, end);
-}

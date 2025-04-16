@@ -12,6 +12,7 @@ enum Operation
     READ_CSV_FILE,
     READ_DATA_FOR_REGION,
     CALCULATE,
+    INIT_CONTEXT
 };
 
 void doOperation(Operation operation, AppContext* context, AppParam* param);
